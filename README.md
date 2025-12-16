@@ -33,6 +33,7 @@ Notes:
 
 - Tested approach: modern Chromium-based browsers and Firefox.
 - The webcam preview is mirrored (selfie-style) for more intuitive control.
+- Don’t open the HTML file directly via `file://`; camera access requires a secure origin, so use the dev server URL.
 
 You can start editing the Next.js landing page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 

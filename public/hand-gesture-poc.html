@@ -249,25 +249,53 @@
     </main>
 
     <script type="module">
-      import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
+      (async () => {
+        const startBtn = document.getElementById("startBtn");
+        const stopBtn = document.getElementById("stopBtn");
+        const statusEl = document.getElementById("status");
+        const poseEl = document.getElementById("pose");
 
-      const startBtn = document.getElementById("startBtn");
-      const stopBtn = document.getElementById("stopBtn");
-      const statusEl = document.getElementById("status");
-      const poseEl = document.getElementById("pose");
+        const video = document.getElementById("video");
+        const overlay = document.getElementById("overlay");
+        const overlayCtx = overlay?.getContext("2d", { alpha: true });
 
-      const video = document.getElementById("video");
-      const overlay = document.getElementById("overlay");
-      const overlayCtx = overlay.getContext("2d", { alpha: true });
+        const threeCanvas = document.getElementById("three");
 
-      const threeCanvas = document.getElementById("three");
+        function setStatus(text) {
+          if (!statusEl) return;
+          statusEl.innerHTML = `<strong>Status:</strong> ${text}`;
+        }
 
-      let stream = null;
-      let running = false;
-      let lastResults = null;
+        if (!startBtn || !stopBtn || !poseEl || !video || !overlay || !overlayCtx || !threeCanvas) {
+          return;
+        }
 
-      const scene = new THREE.Scene();
-      scene.background = new THREE.Color(0x0b0b0d);
+        if (location.protocol === "file:") {
+          setStatus(
+            'camera access is blocked on <code>file://</code>. Run <code>npm run dev</code> and open <code>http://localhost:3000/hand-gesture-poc.html</code>.',
+          );
+          startBtn.disabled = true;
+          return;
+        }
+
+        let THREE;
+        try {
+          THREE = await import("https://unpkg.com/three@0.160.0/build/three.module.js");
+        } catch (err) {
+          console.error(err);
+          setStatus(
+            "failed to load Three.js. Check your network connection and disable ad/script blockers for this page.",
+          );
+          startBtn.disabled = true;
+          return;
+        }
+
+        let stream = null;
+        let running = false;
+        let lastResults = null;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0b0b0d);
 
       const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
       camera.position.set(0, 0, 4.5);
@@ -298,10 +326,6 @@
       const targetQuat = new THREE.Quaternion();
       const smoothQuat = new THREE.Quaternion();
       smoothQuat.copy(cube.quaternion);
-
-      function setStatus(text) {
-        statusEl.innerHTML = `<strong>Status:</strong> ${text}`;
-      }
 
       function resizeCanvases() {
         const w = video.videoWidth || 1280;
@@ -368,7 +392,7 @@
         const center = getPalmCenter(landmarks);
 
         // Normalized camera coordinates -> scene coordinates
-        // x: left/right, y: up/down, z: depth (MediaPipe z is typically negative in front of the camera)
+        // x: left/right, y: up/down, z: depth (positive towards the camera in this demo's coordinate space)
         const x = (center.x - 0.5) * 5.0;
         const y = (center.y - 0.5) * 3.0;
         const z = center.z * 6.0;
@@ -431,8 +455,56 @@
         if (running) requestAnimationFrame(processLoop);
       }
 
+      function formatGetUserMediaError(err) {
+        const name = err?.name;
+        const message = err?.message ? String(err.message) : String(err);
+
+        const host = location.hostname;
+        const isLocalhost = host === "localhost" || host === "127.0.0.1" || host === "::1";
+
+        if (!window.isSecureContext && !isLocalhost) {
+          return "camera access requires HTTPS (or http://localhost).";
+        }
+
+        if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+          return "camera permission denied/blocked. In Chrome: click the site controls icon in the address bar and allow Camera, then reload.";
+        }
+
+        if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+          return "no camera device found.";
+        }
+
+        if (name === "NotReadableError" || name === "TrackStartError") {
+          return "camera is already in use by another application/tab.";
+        }
+
+        if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+          return "requested camera constraints are not supported on this device.";
+        }
+
+        if (name === "SecurityError" || message.toLowerCase().includes("secure")) {
+          return "camera access requires a secure origin (HTTPS or localhost).";
+        }
+
+        return `camera error: ${message}`;
+      }
+
       async function start() {
         if (running) return;
+
+        const host = location.hostname;
+        const isLocalhost = host === "localhost" || host === "127.0.0.1" || host === "::1";
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setStatus("getUserMedia is not available in this browser/environment.");
+          return;
+        }
+
+        if (!window.isSecureContext && !isLocalhost) {
+          setStatus("camera access requires HTTPS (or http://localhost).");
+          return;
+        }
+
         running = true;
         startBtn.disabled = true;
         stopBtn.disabled = false;
@@ -457,7 +529,7 @@
           processLoop();
         } catch (err) {
           console.error(err);
-          setStatus(`camera error: ${err?.message || err}`);
+          setStatus(formatGetUserMediaError(err));
           running = false;
           startBtn.disabled = false;
           stopBtn.disabled = true;
@@ -508,6 +580,11 @@
       animate();
 
       setStatus("idle (click Start camera)");
+    })().catch((err) => {
+      console.error(err);
+      const statusEl = document.getElementById("status");
+      if (statusEl) statusEl.innerHTML = `<strong>Status:</strong> fatal error: ${err?.message || err}`;
+    });
     </script>
   </body>
 </html>
