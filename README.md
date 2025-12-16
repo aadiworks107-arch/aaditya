@@ -16,7 +16,26 @@ bun dev
 
 Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 3D hand gesture control POC
+
+After starting the dev server, open:
+
+- http://localhost:3000/hand-gesture-poc.html
+
+Usage:
+
+1. Click **Start camera** and grant camera permissions.
+2. Hold one hand in view.
+3. The landmark overlay should appear on the webcam preview.
+4. The cube moves based on palm position and rotates based on palm orientation.
+
+Notes:
+
+- Tested approach: modern Chromium-based browsers and Firefox.
+- The webcam preview is mirrored (selfie-style) for more intuitive control.
+- Don’t open the HTML file directly via `file://`; camera access requires a secure origin, so use the dev server URL.
+
+You can start editing the Next.js landing page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 

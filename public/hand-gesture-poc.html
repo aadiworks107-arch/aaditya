@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>3D Hand Gesture Control POC (MediaPipe + Three.js)</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #0b0b0d;
+        --panel: #111114;
+        --border: rgba(255, 255, 255, 0.12);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.7);
+        --btn: rgba(255, 255, 255, 0.08);
+        --btnHover: rgba(255, 255, 255, 0.12);
+        --accent: #7dd3fc;
+      }
+
+      @media (prefers-color-scheme: light) {
+        :root {
+          --bg: #f6f7fb;
+          --panel: #ffffff;
+          --border: rgba(0, 0, 0, 0.1);
+          --text: rgba(0, 0, 0, 0.9);
+          --muted: rgba(0, 0, 0, 0.65);
+          --btn: rgba(0, 0, 0, 0.06);
+          --btnHover: rgba(0, 0, 0, 0.1);
+          --accent: #0369a1;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        height: 100%;
+      }
+
+      body {
+        margin: 0;
+        font-family:
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          Segoe UI,
+          Roboto,
+          Helvetica,
+          Arial,
+          "Apple Color Emoji",
+          "Segoe UI Emoji";
+        background: var(--bg);
+        color: var(--text);
+      }
+
+      header {
+        padding: 20px 20px 0;
+        max-width: 1200px;
+        margin: 0 auto;
+      }
+
+      h1 {
+        margin: 0 0 6px;
+        font-size: 18px;
+        font-weight: 650;
+        letter-spacing: -0.01em;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      main {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 18px 20px 24px;
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 14px;
+      }
+
+      @media (min-width: 980px) {
+        main {
+          grid-template-columns: 1.1fr 0.9fr;
+          align-items: stretch;
+        }
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        overflow: hidden;
+      }
+
+      .panelHeader {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 12px 12px;
+        border-bottom: 1px solid var(--border);
+        gap: 12px;
+      }
+
+      .panelTitle {
+        font-size: 13px;
+        color: var(--muted);
+      }
+
+      .controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+
+      button {
+        appearance: none;
+        border: 1px solid var(--border);
+        background: var(--btn);
+        color: var(--text);
+        padding: 8px 10px;
+        border-radius: 10px;
+        font-size: 13px;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: var(--btnHover);
+      }
+
+      button:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
+      }
+
+      .status {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .status strong {
+        color: var(--text);
+      }
+
+      .videoStage {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16 / 9;
+        background: #000;
+      }
+
+      video,
+      canvas.overlay {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        transform: scaleX(-1);
+      }
+
+      canvas.overlay {
+        pointer-events: none;
+      }
+
+      .threeStage {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        min-height: 320px;
+      }
+
+      canvas.three {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+
+      .legend {
+        padding: 12px;
+        border-top: 1px solid var(--border);
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      code {
+        color: var(--accent);
+      }
+    </style>
+
+    <!-- MediaPipe Hands (global scripts) -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"
+      crossorigin="anonymous"
+    ></script>
+  </head>
+  <body>
+    <header>
+      <h1>3D Hand Gesture Control POC</h1>
+      <p>
+        Move your hand to control the cube: palm position maps to 3D position; palm orientation maps to cube rotation.
+        This demo uses <code>MediaPipe Hands</code> + <code>Three.js</code>.
+      </p>
+    </header>
+
+    <main>
+      <section class="panel">
+        <div class="panelHeader">
+          <div>
+            <div class="panelTitle">Webcam + hand landmark overlay</div>
+          </div>
+          <div class="controls">
+            <button id="startBtn">Start camera</button>
+            <button id="stopBtn" disabled>Stop</button>
+            <div class="status" id="status"><strong>Status:</strong> idle</div>
+          </div>
+        </div>
+
+        <div class="videoStage">
+          <video id="video" playsinline muted></video>
+          <canvas id="overlay" class="overlay"></canvas>
+        </div>
+
+        <div class="legend">
+          Tips: ensure good lighting; keep your hand within frame. If you see mirrored motion, that is intentional to match
+          "selfie" camera behavior.
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panelHeader">
+          <div class="panelTitle">Three.js scene</div>
+          <div class="status" id="pose"><strong>Hand:</strong> not detected</div>
+        </div>
+        <div class="threeStage">
+          <canvas id="three" class="three"></canvas>
+        </div>
+        <div class="legend">
+          Mapping: <code>(x,y,z)</code> = palm center position; orientation computed from palm basis (wrist/index/pinky/middle).
+          Tracking is smoothed for stability.
+        </div>
+      </section>
+    </main>
+
+    <script type="module">
+      (async () => {
+        const startBtn = document.getElementById("startBtn");
+        const stopBtn = document.getElementById("stopBtn");
+        const statusEl = document.getElementById("status");
+        const poseEl = document.getElementById("pose");
+
+        const video = document.getElementById("video");
+        const overlay = document.getElementById("overlay");
+        const overlayCtx = overlay?.getContext("2d", { alpha: true });
+
+        const threeCanvas = document.getElementById("three");
+
+        function setStatus(text) {
+          if (!statusEl) return;
+          statusEl.innerHTML = `<strong>Status:</strong> ${text}`;
+        }
+
+        if (!startBtn || !stopBtn || !poseEl || !video || !overlay || !overlayCtx || !threeCanvas) {
+          return;
+        }
+
+        if (location.protocol === "file:") {
+          setStatus(
+            'camera access is blocked on <code>file://</code>. Run <code>npm run dev</code> and open <code>http://localhost:3000/hand-gesture-poc.html</code>.',
+          );
+          startBtn.disabled = true;
+          return;
+        }
+
+        let THREE;
+        try {
+          THREE = await import("https://unpkg.com/three@0.160.0/build/three.module.js");
+        } catch (err) {
+          console.error(err);
+          setStatus(
+            "failed to load Three.js. Check your network connection and disable ad/script blockers for this page.",
+          );
+          startBtn.disabled = true;
+          return;
+        }
+
+        let stream = null;
+        let running = false;
+        let lastResults = null;
+
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0b0b0d);
+
+      const camera = new THREE.PerspectiveCamera(50, 1, 0.1, 100);
+      camera.position.set(0, 0, 4.5);
+
+      const renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+
+      const ambient = new THREE.AmbientLight(0xffffff, 0.65);
+      scene.add(ambient);
+
+      const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+      dir.position.set(2, 3, 4);
+      scene.add(dir);
+
+      const grid = new THREE.GridHelper(8, 8, 0x2a2a2a, 0x1a1a1a);
+      grid.position.y = -1.8;
+      scene.add(grid);
+
+      const cube = new THREE.Mesh(
+        new THREE.BoxGeometry(1, 1, 1),
+        new THREE.MeshStandardMaterial({ color: 0x7dd3fc, roughness: 0.35, metalness: 0.1 }),
+      );
+      scene.add(cube);
+
+      const targetPos = new THREE.Vector3(0, 0, 0);
+      const smoothPos = new THREE.Vector3(0, 0, 0);
+
+      const targetQuat = new THREE.Quaternion();
+      const smoothQuat = new THREE.Quaternion();
+      smoothQuat.copy(cube.quaternion);
+
+      function resizeCanvases() {
+        const w = video.videoWidth || 1280;
+        const h = video.videoHeight || 720;
+        overlay.width = w;
+        overlay.height = h;
+
+        const rect = threeCanvas.getBoundingClientRect();
+        const width = Math.max(1, Math.floor(rect.width));
+        const height = Math.max(1, Math.floor(rect.height));
+        renderer.setSize(width, height, false);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      }
+
+      window.addEventListener("resize", () => {
+        resizeCanvases();
+      });
+
+      function toPalmVec(lm) {
+        // Convert MediaPipe normalized landmark coordinates into a simple right-handed space:
+        // - X mirrored to match selfie view (we also mirror the video/canvas via CSS)
+        // - Y up (MediaPipe Y is down)
+        // - Z positive towards the camera (MediaPipe Z is usually negative in front of the camera)
+        const x = 1 - lm.x;
+        const y = 1 - lm.y;
+        const z = -lm.z;
+        return new THREE.Vector3(x, y, z);
+      }
+
+      function getPalmCenter(landmarks) {
+        const idx = [0, 5, 9, 13, 17];
+        const center = new THREE.Vector3();
+        for (const i of idx) center.add(toPalmVec(landmarks[i]));
+        center.multiplyScalar(1 / idx.length);
+        return center;
+      }
+
+      function computePalmQuaternion(landmarks) {
+        const wrist = toPalmVec(landmarks[0]);
+        const indexMcp = toPalmVec(landmarks[5]);
+        const middleMcp = toPalmVec(landmarks[9]);
+        const pinkyMcp = toPalmVec(landmarks[17]);
+
+        const xAxis = new THREE.Vector3().subVectors(indexMcp, pinkyMcp).normalize();
+        const yAxis = new THREE.Vector3().subVectors(middleMcp, wrist).normalize();
+
+        // Adjust Z scaling so depth doesn't overwhelm rotation stability.
+        xAxis.z *= 0.5;
+        yAxis.z *= 0.5;
+        xAxis.normalize();
+        yAxis.normalize();
+
+        const zAxis = new THREE.Vector3().crossVectors(xAxis, yAxis).normalize();
+
+        // Re-orthonormalize yAxis to avoid drift when landmarks are noisy.
+        yAxis.crossVectors(zAxis, xAxis).normalize();
+
+        const m = new THREE.Matrix4().makeBasis(xAxis, yAxis, zAxis);
+        return new THREE.Quaternion().setFromRotationMatrix(m);
+      }
+
+      function updateFromLandmarks(landmarks) {
+        const center = getPalmCenter(landmarks);
+
+        // Normalized camera coordinates -> scene coordinates
+        // x: left/right, y: up/down, z: depth (positive towards the camera in this demo's coordinate space)
+        const x = (center.x - 0.5) * 5.0;
+        const y = (center.y - 0.5) * 3.0;
+        const z = center.z * 6.0;
+
+        targetPos.set(x, y, THREE.MathUtils.clamp(z, -3.0, 3.0));
+
+        const q = computePalmQuaternion(landmarks);
+        targetQuat.copy(q);
+      }
+
+      function drawOverlay(results) {
+        overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+
+        const landmarksArr = results.multiHandLandmarks || [];
+        if (landmarksArr.length === 0) return;
+
+        for (const landmarks of landmarksArr) {
+          window.drawConnectors(overlayCtx, landmarks, window.HAND_CONNECTIONS, {
+            color: "#00ff88",
+            lineWidth: 2,
+          });
+          window.drawLandmarks(overlayCtx, landmarks, { color: "#7dd3fc", lineWidth: 1 });
+        }
+      }
+
+      const hands = new window.Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+      });
+
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7,
+      });
+
+      hands.onResults((results) => {
+        lastResults = results;
+        drawOverlay(results);
+
+        const landmarks = results.multiHandLandmarks?.[0];
+        if (!landmarks) {
+          poseEl.innerHTML = `<strong>Hand:</strong> not detected`;
+          return;
+        }
+
+        poseEl.innerHTML = `<strong>Hand:</strong> detected`;
+        updateFromLandmarks(landmarks);
+      });
+
+      async function processLoop() {
+        if (!running) return;
+
+        try {
+          await hands.send({ image: video });
+        } catch (err) {
+          console.error(err);
+        }
+
+        if (running) requestAnimationFrame(processLoop);
+      }
+
+      function formatGetUserMediaError(err) {
+        const name = err?.name;
+        const message = err?.message ? String(err.message) : String(err);
+
+        const host = location.hostname;
+        const isLocalhost = host === "localhost" || host === "127.0.0.1" || host === "::1";
+
+        if (!window.isSecureContext && !isLocalhost) {
+          return "camera access requires HTTPS (or http://localhost).";
+        }
+
+        if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+          return "camera permission denied/blocked. In Chrome: click the site controls icon in the address bar and allow Camera, then reload.";
+        }
+
+        if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+          return "no camera device found.";
+        }
+
+        if (name === "NotReadableError" || name === "TrackStartError") {
+          return "camera is already in use by another application/tab.";
+        }
+
+        if (name === "OverconstrainedError" || name === "ConstraintNotSatisfiedError") {
+          return "requested camera constraints are not supported on this device.";
+        }
+
+        if (name === "SecurityError" || message.toLowerCase().includes("secure")) {
+          return "camera access requires a secure origin (HTTPS or localhost).";
+        }
+
+        return `camera error: ${message}`;
+      }
+
+      async function start() {
+        if (running) return;
+
+        const host = location.hostname;
+        const isLocalhost = host === "localhost" || host === "127.0.0.1" || host === "::1";
+
+        if (!navigator.mediaDevices?.getUserMedia) {
+          setStatus("getUserMedia is not available in this browser/environment.");
+          return;
+        }
+
+        if (!window.isSecureContext && !isLocalhost) {
+          setStatus("camera access requires HTTPS (or http://localhost).");
+          return;
+        }
+
+        running = true;
+        startBtn.disabled = true;
+        stopBtn.disabled = false;
+
+        setStatus("requesting camera permission...");
+
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              facingMode: "user",
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+            audio: false,
+          });
+
+          video.srcObject = stream;
+          await video.play();
+
+          resizeCanvases();
+          setStatus("running");
+          processLoop();
+        } catch (err) {
+          console.error(err);
+          setStatus(formatGetUserMediaError(err));
+          running = false;
+          startBtn.disabled = false;
+          stopBtn.disabled = true;
+        }
+      }
+
+      function stop() {
+        running = false;
+        lastResults = null;
+
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+
+        if (stream) {
+          for (const track of stream.getTracks()) track.stop();
+          stream = null;
+        }
+
+        video.pause();
+        video.srcObject = null;
+
+        overlayCtx.clearRect(0, 0, overlay.width, overlay.height);
+        poseEl.innerHTML = `<strong>Hand:</strong> not detected`;
+        setStatus("stopped");
+      }
+
+      startBtn.addEventListener("click", start);
+      stopBtn.addEventListener("click", stop);
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        // Smooth position + rotation (even when no hand detected, we keep the last target)
+        smoothPos.lerp(targetPos, 0.18);
+        smoothQuat.slerp(targetQuat, 0.18);
+
+        cube.position.copy(smoothPos);
+        cube.quaternion.copy(smoothQuat);
+
+        // Slight idle spin when not tracking (helps confirm render loop)
+        if (!lastResults?.multiHandLandmarks?.length) {
+          cube.rotation.y += 0.004;
+        }
+
+        renderer.render(scene, camera);
+      }
+
+      animate();
+
+      setStatus("idle (click Start camera)");
+    })().catch((err) => {
+      console.error(err);
+      const statusEl = document.getElementById("status");
+      if (statusEl) statusEl.innerHTML = `<strong>Status:</strong> fatal error: ${err?.message || err}`;
+    });
+    </script>
+  </body>
+</html>
